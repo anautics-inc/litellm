@@ -16,8 +16,6 @@ variables:
   DS_INCLUDE_DEV_DEPENDENCIES: "false"
   DS_ENFORCE_NEW_ANALYZER: "true"
   DOCKER_BUILDKIT: "1"
-  DOCKER_HOST: tcp://docker:2375
-  DOCKER_TLS_CERTDIR: ""
   CYCLONEDX_VERSION: "v0.29.1"
   CYCLONEDX_LINUX_X64_SHA256: "1daceab1a7613603072db34d406659f0865623a4f137637440764cb9aa31236c"
 
@@ -35,9 +33,6 @@ build-wheel:
 
 build-image:
   stage: build
-  image: docker:27.5.1
-  services:
-    - name: docker:27.5.1-dind
   before_script:
     - docker info
     - docker buildx version
@@ -69,9 +64,6 @@ build-image:
 
 build-sbom-image:
   stage: build
-  image: docker:27.5.1
-  services:
-    - name: docker:27.5.1-dind
   needs:
     - job: build-image
       artifacts: true
@@ -80,7 +72,7 @@ build-sbom-image:
     - docker buildx version
   script:
     - LITELLM_VERSION=$(cat litellm_version.txt)
-    - docker buildx build -f Dockerfile.sbom -t "litellm-sbom:$LITELLM_VERSION" --load .
+    - docker buildx build -f Containerfile.sbom -t "litellm-sbom:$LITELLM_VERSION" --load .
     - SBOM_CONTAINER_ID=$(docker create "litellm-sbom:$LITELLM_VERSION")
     - docker cp "$SBOM_CONTAINER_ID":/sbom/build-sbom.json ./build-sbom.json
     - docker cp "$SBOM_CONTAINER_ID":/sbom/runtime-sbom.json ./runtime-sbom.json
