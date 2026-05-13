@@ -61,6 +61,8 @@ build-image:
     expire_in: 1 week
   rules:
     - when: always
+  tags:
+    - al2023-fips-shell
 
 build-sbom-image:
   stage: build
@@ -84,6 +86,8 @@ build-sbom-image:
     expire_in: 1 week
   rules:
     - when: always
+  tags:
+    - al2023-fips-shell
 
 dependency-scanning:
   stage: test
