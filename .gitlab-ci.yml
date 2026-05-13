@@ -135,6 +135,8 @@ container_scanning:
 merge-sbom:
   stage: sbom
   image: alpine:3.22
+  variables:
+    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1"
   needs:
     - job: build-image
       artifacts: true
@@ -149,7 +151,6 @@ merge-sbom:
     - echo "${CYCLONEDX_LINUX_MUSL_X64_SHA256}  ./cyclonedx" | sha256sum -c -
     - chmod +x ./cyclonedx
     - ./cyclonedx --version
-    - export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
     - |
       CONTAINER_SBOM=$(ls gl-sbom*.cdx.json 2>/dev/null | head -1)
       if [ -z "$CONTAINER_SBOM" ]; then
