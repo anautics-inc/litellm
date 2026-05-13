@@ -74,7 +74,7 @@ build-sbom-image:
     - docker buildx version
   script:
     - LITELLM_VERSION=$(cat litellm_version.txt)
-    - docker buildx build -f Containerfile.sbom -t "litellm-sbom:$LITELLM_VERSION" --load .
+    - docker buildx build -f Dockerfile.sbom -t "litellm-sbom:$LITELLM_VERSION" --load .
     - SBOM_CONTAINER_ID=$(docker create "litellm-sbom:$LITELLM_VERSION")
     - docker cp "$SBOM_CONTAINER_ID":/sbom/build-sbom.json ./build-sbom.json
     - docker cp "$SBOM_CONTAINER_ID":/sbom/runtime-sbom.json ./runtime-sbom.json
