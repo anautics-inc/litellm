@@ -1,0 +1,263 @@
+# GitLab CI pipeline for build + SBOM/ATO artifacts (no deploy jobs)
+
+include:
+  - template: Jobs/Dependency-Scanning.latest.gitlab-ci.yml
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Container-Scanning.gitlab-ci.yml
+
+stages:
+  - build
+  - test
+  - scan
+  - sbom
+  - package
+
+variables:
+  DS_INCLUDE_DEV_DEPENDENCIES: "false"
+  DS_ENFORCE_NEW_ANALYZER: "true"
+  DOCKER_BUILDKIT: "1"
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
+  CYCLONEDX_VERSION: "v0.29.1"
+  CYCLONEDX_LINUX_X64_SHA256: "1daceab1a7613603072db34d406659f0865623a4f137637440764cb9aa31236c"
+
+build-wheel:
+  stage: build
+  image: ghcr.io/astral-sh/uv:0.8.19
+  script:
+    - uv build
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
+  rules:
+    - when: always
+
+build-image:
+  stage: build
+  image: docker:27.5.1
+  services:
+    - name: docker:27.5.1-dind
+  before_script:
+    - docker info
+    - docker buildx version
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - LITELLM_VERSION=$(grep '^version' pyproject.toml | head -1 | sed -E 's/version\s*=\s*"([^"]+)"/\1/')
+    - echo "$LITELLM_VERSION" > litellm_version.txt
+    - |
+      docker buildx build \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        --cache-from "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG" \
+        --cache-from "$CI_REGISTRY_IMAGE:latest" \
+        -f Dockerfile \
+        -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG" \
+        --load \
+        .
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
+    - |
+      if [ "$CI_COMMIT_REF_NAME" = "main" ]; then
+        docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG" "$CI_REGISTRY_IMAGE:latest"
+        docker push "$CI_REGISTRY_IMAGE:latest"
+      fi
+  artifacts:
+    paths:
+      - litellm_version.txt
+    expire_in: 1 week
+  rules:
+    - when: always
+
+build-sbom-image:
+  stage: build
+  image: docker:27.5.1
+  services:
+    - name: docker:27.5.1-dind
+  needs:
+    - job: build-image
+      artifacts: true
+  before_script:
+    - docker info
+    - docker buildx version
+  script:
+    - LITELLM_VERSION=$(cat litellm_version.txt)
+    - docker buildx build -f Dockerfile.sbom -t "litellm-sbom:$LITELLM_VERSION" --load .
+    - SBOM_CONTAINER_ID=$(docker create "litellm-sbom:$LITELLM_VERSION")
+    - docker cp "$SBOM_CONTAINER_ID":/sbom/build-sbom.json ./build-sbom.json
+    - docker cp "$SBOM_CONTAINER_ID":/sbom/runtime-sbom.json ./runtime-sbom.json
+    - docker rm "$SBOM_CONTAINER_ID"
+  artifacts:
+    paths:
+      - build-sbom.json
+      - runtime-sbom.json
+    expire_in: 1 week
+  rules:
+    - when: always
+
+dependency-scanning:
+  stage: test
+  rules:
+    - when: always
+
+semgrep-sast:
+  stage: test
+  artifacts:
+    paths:
+      - gl-sast-report.json
+    reports:
+      sast: gl-sast-report.json
+    expire_in: 1 week
+  rules:
+    - when: always
+
+container_scanning:
+  stage: scan
+  variables:
+    CS_IMAGE: "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
+    SECURE_LOG_LEVEL: debug
+    CI_GITLAB_FIPS_MODE: "false"
+  needs:
+    - job: build-image
+      artifacts: true
+    - job: dependency-scanning
+      artifacts: true
+      optional: true
+  dependencies:
+    - dependency-scanning
+  artifacts:
+    paths:
+      - gl-container-scanning-report.json
+      - gl-sbom*.cdx.json
+    reports:
+      container_scanning: gl-container-scanning-report.json
+    expire_in: 1 week
+  rules:
+    - when: always
+
+merge-sbom:
+  stage: sbom
+  image: alpine:3.22
+  needs:
+    - job: build-image
+      artifacts: true
+    - job: build-sbom-image
+      artifacts: true
+    - job: container_scanning
+      artifacts: true
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - curl -fsSL -o ./cyclonedx "https://github.com/CycloneDX/cyclonedx-cli/releases/download/${CYCLONEDX_VERSION}/cyclonedx-linux-x64"
+    - echo "${CYCLONEDX_LINUX_X64_SHA256}  ./cyclonedx" | sha256sum -c -
+    - chmod +x ./cyclonedx
+    - export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+    - |
+      CONTAINER_SBOM=$(ls gl-sbom*.cdx.json 2>/dev/null | head -1)
+      if [ -z "$CONTAINER_SBOM" ]; then
+        echo "WARNING: no container SBOM found; using environment SBOM only"
+      else
+        echo "Using container SBOM: $CONTAINER_SBOM"
+      fi
+    - |
+      if [ -n "$CONTAINER_SBOM" ]; then
+        ./cyclonedx merge \
+          --input-files "$CONTAINER_SBOM" build-sbom.json \
+          --output-file build-sbom-merged.cdx.json \
+          --output-format json \
+          --output-version v1_6
+      else
+        ./cyclonedx merge \
+          --input-files build-sbom.json \
+          --output-file build-sbom-merged.cdx.json \
+          --output-format json \
+          --output-version v1_6
+      fi
+    - |
+      if [ -n "$CONTAINER_SBOM" ]; then
+        ./cyclonedx merge \
+          --input-files "$CONTAINER_SBOM" runtime-sbom.json \
+          --output-file runtime-sbom-merged.cdx.json \
+          --output-format json \
+          --output-version v1_6
+      else
+        ./cyclonedx merge \
+          --input-files runtime-sbom.json \
+          --output-file runtime-sbom-merged.cdx.json \
+          --output-format json \
+          --output-version v1_6
+      fi
+  artifacts:
+    paths:
+      - build-sbom-merged.cdx.json
+      - runtime-sbom-merged.cdx.json
+    expire_in: 1 week
+  rules:
+    - when: always
+
+convert-sbom:
+  stage: sbom
+  image: ghcr.io/astral-sh/uv:0.8.19
+  needs:
+    - job: merge-sbom
+      artifacts: true
+  script:
+    - uv run --with pandas==2.3.3 --with openpyxl==3.1.5 python scripts/convert_sbom.py -i build-sbom-merged.cdx.json -o build-sbom.xlsx
+    - uv run --with pandas==2.3.3 --with openpyxl==3.1.5 python scripts/convert_sbom.py -i runtime-sbom-merged.cdx.json -o runtime-sbom.xlsx
+  artifacts:
+    paths:
+      - build-sbom.xlsx
+      - runtime-sbom.xlsx
+    expire_in: 1 week
+  rules:
+    - when: always
+
+package-documents:
+  stage: package
+  image: alpine:3.22
+  needs:
+    - job: build-image
+      artifacts: true
+    - job: semgrep-sast
+      artifacts: true
+      optional: true
+    - job: dependency-scanning
+      artifacts: true
+      optional: true
+    - job: container_scanning
+      artifacts: true
+      optional: true
+    - job: merge-sbom
+      artifacts: true
+    - job: convert-sbom
+      artifacts: true
+  script:
+    - mkdir -p "ci-documents-${CI_PIPELINE_ID}"
+    - DATE=$(date +%m-%d-%Y)
+    - LITELLM_VERSION=$(cat litellm_version.txt)
+    - |
+      if [ -f gl-sast-report.json ]; then
+        cp gl-sast-report.json "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-gl-sast-report.json"
+      fi
+    - |
+      if [ -f gl-dependency-scanning-report.json ]; then
+        cp gl-dependency-scanning-report.json "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-gl-dependency-scanning-report.json"
+      fi
+    - |
+      CONTAINER_SBOM=$(ls gl-sbom*.cdx.json 2>/dev/null | head -1)
+      if [ -n "$CONTAINER_SBOM" ]; then
+        cp "$CONTAINER_SBOM" "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-gl-container-sbom.json"
+      fi
+    - |
+      if [ -f gl-container-scanning-report.json ]; then
+        cp gl-container-scanning-report.json "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-gl-container-scanning-report.json"
+      fi
+    - cp build-sbom-merged.cdx.json "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-build-sbom-${LITELLM_VERSION}.cdx.json"
+    - cp build-sbom.xlsx "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-build-sbom-${LITELLM_VERSION}.xlsx"
+    - cp runtime-sbom-merged.cdx.json "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-runtime-sbom-${LITELLM_VERSION}.cdx.json"
+    - cp runtime-sbom.xlsx "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-runtime-sbom-${LITELLM_VERSION}.xlsx"
+    - ls -1 "ci-documents-${CI_PIPELINE_ID}/"
+  artifacts:
+    paths:
+      - ci-documents-*
+    expire_in: 90 days
+  rules:
+    - when: always
