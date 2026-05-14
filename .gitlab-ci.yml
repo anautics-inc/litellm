@@ -12,6 +12,23 @@ stages:
   - sbom
   - package
 
+dashboard-sbom:
+  stage: sbom
+  image: node:20
+  before_script:
+    - cd ui/litellm-dashboard
+    - npm install -g @cyclonedx/bom@3.11.0 || yarn global add @cyclonedx/bom@3.11.0
+    - npm ci || yarn install --frozen-lockfile
+  script:
+    - cyclonedx-bom -o dashboard-sbom.json --output-format json:v1.6
+    - mv dashboard-sbom.json ../../dashboard-sbom.json
+  artifacts:
+    paths:
+      - dashboard-sbom.json
+    expire_in: 1 week
+  rules:
+    - when: always
+
 variables:
   DS_INCLUDE_DEV_DEPENDENCIES: "false"
   DS_ENFORCE_NEW_ANALYZER: "true"
@@ -190,6 +207,40 @@ merge-sbom:
     paths:
       - build-sbom-merged.cdx.json
       - runtime-sbom-merged.cdx.json
+      - dashboard-sbom.json
+    expire_in: 1 week
+  rules:
+    - when: always
+
+enrich-sboms:
+  stage: sbom
+  image: python:3.12-slim-bookworm
+  needs:
+    - job: merge-sbom
+      artifacts: true
+    - job: dependency-scanning
+      artifacts: true
+    - job: dashboard-sbom
+      artifacts: true
+  before_script:
+    - python -m pip install --no-cache-dir "uv==0.8.19"
+    - uv --version
+    - pip install pandas openpyxl
+  script:
+    # Use GitLab dependency scan as vuln source if available, else fallback to Grype (not implemented here)
+    - |
+      VULN_JSON="gl-dependency-scanning-report.json"
+      if [ ! -f "$VULN_JSON" ]; then
+        echo "No GitLab dependency scan found, skipping enrichment (fallback to Grype not implemented)"; exit 1;
+      fi
+      python scripts/sbom-vuln-injection.py build-sbom-merged.cdx.json "$VULN_JSON" build-sbom-enriched.cdx.json
+      python scripts/sbom-vuln-injection.py runtime-sbom-merged.cdx.json "$VULN_JSON" runtime-sbom-enriched.cdx.json
+      python scripts/sbom-vuln-injection.py dashboard-sbom.json "$VULN_JSON" dashboard-sbom-enriched.cdx.json
+  artifacts:
+    paths:
+      - build-sbom-enriched.cdx.json
+      - runtime-sbom-enriched.cdx.json
+      - dashboard-sbom-enriched.cdx.json
     expire_in: 1 week
   rules:
     - when: always
@@ -201,15 +252,17 @@ convert-sbom:
     - python -m pip install --no-cache-dir "uv==0.8.19"
     - uv --version
   needs:
-    - job: merge-sbom
+    - job: enrich-sboms
       artifacts: true
   script:
-    - uv run --with pandas==2.3.3 --with openpyxl==3.1.5 python scripts/convert_sbom.py -i build-sbom-merged.cdx.json -o build-sbom.xlsx
-    - uv run --with pandas==2.3.3 --with openpyxl==3.1.5 python scripts/convert_sbom.py -i runtime-sbom-merged.cdx.json -o runtime-sbom.xlsx
+    - uv run --with pandas==2.3.3 --with openpyxl==3.1.5 python scripts/convert_sbom_with_vulns.py -i build-sbom-enriched.cdx.json -o build-sbom.xlsx
+    - uv run --with pandas==2.3.3 --with openpyxl==3.1.5 python scripts/convert_sbom_with_vulns.py -i runtime-sbom-enriched.cdx.json -o runtime-sbom.xlsx
+    - uv run --with pandas==2.3.3 --with openpyxl==3.1.5 python scripts/convert_sbom_with_vulns.py -i dashboard-sbom-enriched.cdx.json -o dashboard-sbom.xlsx
   artifacts:
     paths:
       - build-sbom.xlsx
       - runtime-sbom.xlsx
+      - dashboard-sbom.xlsx
     expire_in: 1 week
   rules:
     - when: always
@@ -258,6 +311,8 @@ package-documents:
     - cp build-sbom.xlsx "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-build-sbom-${LITELLM_VERSION}.xlsx"
     - cp runtime-sbom-merged.cdx.json "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-runtime-sbom-${LITELLM_VERSION}.cdx.json"
     - cp runtime-sbom.xlsx "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-runtime-sbom-${LITELLM_VERSION}.xlsx"
+    - cp dashboard-sbom.json "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-dashboard-sbom-${LITELLM_VERSION}.json"
+    - cp dashboard-sbom.xlsx "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-dashboard-sbom-${LITELLM_VERSION}.xlsx"
     - ls -1 "ci-documents-${CI_PIPELINE_ID}/"
   artifacts:
     paths:
