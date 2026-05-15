@@ -97,10 +97,10 @@ dashboard-sbom:
   image: node:20
   before_script:
     - cd ui/litellm-dashboard
-    - npm install -g @cyclonedx/bom@3.11.0
+    - npm install -g @cyclonedx/cyclonedx-npm@4.0.0
     - npm ci
   script:
-    - cyclonedx-bom -o dashboard-sbom.json --output-format json:v1.6
+    - cyclonedx-npm --output-file dashboard-sbom.json --output-format JSON --sv 1.6
     - mv dashboard-sbom.json ../../dashboard-sbom.json
   artifacts:
     paths:
@@ -151,7 +151,9 @@ container_scanning:
 
 grype-sbom-scan:
   stage: sbom
-  image: anchore/grype:v0.92.0
+  image:
+    name: anchore/grype:v0.92.0
+    entrypoint: [""]
   needs:
     - job: build-sbom-image
       artifacts: true
