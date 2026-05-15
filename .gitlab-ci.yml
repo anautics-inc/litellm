@@ -273,6 +273,18 @@ enrich-sboms:
         python scripts/sbom-vuln-injection.py dashboard-sbom.json gl-dependency-scanning-report.json dashboard-sbom-enriched.cdx.json
       else
         echo "GitLab dependency scan not found; falling back to Grype results"
+
+        mkdir -p grype-scan-results
+        for fallback_file in \
+          grype-scan-results/build-sbom-grype.json \
+          grype-scan-results/runtime-sbom-grype.json \
+          grype-scan-results/dashboard-sbom-grype.json; do
+          if [ ! -f "$fallback_file" ]; then
+            echo "WARNING: Missing $fallback_file; creating empty fallback report"
+            echo '{"matches":[]}' > "$fallback_file"
+          fi
+        done
+
         python scripts/sbom-vuln-injection.py build-sbom-merged.cdx.json grype-scan-results/build-sbom-grype.json build-sbom-enriched.cdx.json
         python scripts/sbom-vuln-injection.py runtime-sbom-merged.cdx.json grype-scan-results/runtime-sbom-grype.json runtime-sbom-enriched.cdx.json
         python scripts/sbom-vuln-injection.py dashboard-sbom.json grype-scan-results/dashboard-sbom-grype.json dashboard-sbom-enriched.cdx.json
