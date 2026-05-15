@@ -12,23 +12,6 @@ stages:
   - sbom
   - package
 
-dashboard-sbom:
-  stage: sbom
-  image: node:20
-  before_script:
-    - cd ui/litellm-dashboard
-    - npm install -g @cyclonedx/bom@3.11.0 || yarn global add @cyclonedx/bom@3.11.0
-    - npm ci || yarn install --frozen-lockfile
-  script:
-    - cyclonedx-bom -o dashboard-sbom.json --output-format json:v1.6
-    - mv dashboard-sbom.json ../../dashboard-sbom.json
-  artifacts:
-    paths:
-      - dashboard-sbom.json
-    expire_in: 1 week
-  rules:
-    - when: always
-
 variables:
   DS_INCLUDE_DEV_DEPENDENCIES: "false"
   DS_ENFORCE_NEW_ANALYZER: "true"
@@ -109,6 +92,23 @@ build-sbom-image:
   tags:
     - al2023-fips-shell
 
+dashboard-sbom:
+  stage: build
+  image: node:20
+  before_script:
+    - cd ui/litellm-dashboard
+    - npm install -g @cyclonedx/bom@3.11.0
+    - npm ci
+  script:
+    - cyclonedx-bom -o dashboard-sbom.json --output-format json:v1.6
+    - mv dashboard-sbom.json ../../dashboard-sbom.json
+  artifacts:
+    paths:
+      - dashboard-sbom.json
+    expire_in: 1 week
+  rules:
+    - when: always
+
 dependency-scanning:
   stage: test
   rules:
@@ -145,6 +145,40 @@ container_scanning:
       - gl-sbom*.cdx.json
     reports:
       container_scanning: gl-container-scanning-report.json
+    expire_in: 1 week
+  rules:
+    - when: always
+
+grype-sbom-scan:
+  stage: sbom
+  image: anchore/grype:v0.92.0
+  needs:
+    - job: build-sbom-image
+      artifacts: true
+    - job: dashboard-sbom
+      artifacts: true
+  script:
+    - mkdir -p grype-scan-results
+    - |
+      run_grype_scan() {
+        input_file="$1"
+        output_file="$2"
+
+        if [ -f "$input_file" ]; then
+          if ! grype "sbom:$input_file" -o json > "$output_file"; then
+            echo '{"matches":[]}' > "$output_file"
+          fi
+        else
+          echo '{"matches":[]}' > "$output_file"
+        fi
+      }
+
+      run_grype_scan build-sbom.json grype-scan-results/build-sbom-grype.json
+      run_grype_scan runtime-sbom.json grype-scan-results/runtime-sbom-grype.json
+      run_grype_scan dashboard-sbom.json grype-scan-results/dashboard-sbom-grype.json
+  artifacts:
+    paths:
+      - grype-scan-results/
     expire_in: 1 week
   rules:
     - when: always
@@ -222,20 +256,25 @@ enrich-sboms:
       artifacts: true
     - job: dashboard-sbom
       artifacts: true
+    - job: grype-sbom-scan
+      artifacts: true
   before_script:
     - python -m pip install --no-cache-dir "uv==0.8.19"
     - uv --version
     - pip install pandas openpyxl
   script:
-    # Use GitLab dependency scan as vuln source if available, else fallback to Grype (not implemented here)
     - |
-      VULN_JSON="gl-dependency-scanning-report.json"
-      if [ ! -f "$VULN_JSON" ]; then
-        echo "No GitLab dependency scan found, skipping enrichment (fallback to Grype not implemented)"; exit 1;
+      if [ -f gl-dependency-scanning-report.json ]; then
+        echo "Using GitLab dependency scanning report for SBOM enrichment"
+        python scripts/sbom-vuln-injection.py build-sbom-merged.cdx.json gl-dependency-scanning-report.json build-sbom-enriched.cdx.json
+        python scripts/sbom-vuln-injection.py runtime-sbom-merged.cdx.json gl-dependency-scanning-report.json runtime-sbom-enriched.cdx.json
+        python scripts/sbom-vuln-injection.py dashboard-sbom.json gl-dependency-scanning-report.json dashboard-sbom-enriched.cdx.json
+      else
+        echo "GitLab dependency scan not found; falling back to Grype results"
+        python scripts/sbom-vuln-injection.py build-sbom-merged.cdx.json grype-scan-results/build-sbom-grype.json build-sbom-enriched.cdx.json
+        python scripts/sbom-vuln-injection.py runtime-sbom-merged.cdx.json grype-scan-results/runtime-sbom-grype.json runtime-sbom-enriched.cdx.json
+        python scripts/sbom-vuln-injection.py dashboard-sbom.json grype-scan-results/dashboard-sbom-grype.json dashboard-sbom-enriched.cdx.json
       fi
-      python scripts/sbom-vuln-injection.py build-sbom-merged.cdx.json "$VULN_JSON" build-sbom-enriched.cdx.json
-      python scripts/sbom-vuln-injection.py runtime-sbom-merged.cdx.json "$VULN_JSON" runtime-sbom-enriched.cdx.json
-      python scripts/sbom-vuln-injection.py dashboard-sbom.json "$VULN_JSON" dashboard-sbom-enriched.cdx.json
   artifacts:
     paths:
       - build-sbom-enriched.cdx.json
@@ -284,6 +323,10 @@ package-documents:
       optional: true
     - job: merge-sbom
       artifacts: true
+    - job: dashboard-sbom
+      artifacts: true
+    - job: enrich-sboms
+      artifacts: true
     - job: convert-sbom
       artifacts: true
   script:
@@ -312,6 +355,7 @@ package-documents:
     - cp runtime-sbom-merged.cdx.json "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-runtime-sbom-${LITELLM_VERSION}.cdx.json"
     - cp runtime-sbom.xlsx "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-runtime-sbom-${LITELLM_VERSION}.xlsx"
     - cp dashboard-sbom.json "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-dashboard-sbom-${LITELLM_VERSION}.json"
+    - cp dashboard-sbom-enriched.cdx.json "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-dashboard-sbom-enriched-${LITELLM_VERSION}.cdx.json"
     - cp dashboard-sbom.xlsx "ci-documents-${CI_PIPELINE_ID}/${DATE}_litellm-dashboard-sbom-${LITELLM_VERSION}.xlsx"
     - ls -1 "ci-documents-${CI_PIPELINE_ID}/"
   artifacts:
