@@ -151,14 +151,23 @@ container_scanning:
 
 grype-sbom-scan:
   stage: sbom
-  image:
-    name: anchore/grype:v0.92.0
-    entrypoint: [""]
+  image: alpine:3.22
+  variables:
+    GRYPE_VERSION: "v0.92.0"
+    GRYPE_LINUX_AMD64_SHA256: "1449ea724676f8df6e58da3409087c8bbaee04a346cbee7466353ccf78a9fcac"
   needs:
     - job: build-sbom-image
       artifacts: true
     - job: dashboard-sbom
       artifacts: true
+  before_script:
+    - apk add --no-cache curl tar
+    - GRYPE_ARCHIVE="grype_${GRYPE_VERSION#v}_linux_amd64.tar.gz"
+    - curl -fsSL -o "$GRYPE_ARCHIVE" "https://github.com/anchore/grype/releases/download/${GRYPE_VERSION}/${GRYPE_ARCHIVE}"
+    - echo "${GRYPE_LINUX_AMD64_SHA256}  ${GRYPE_ARCHIVE}" | sha256sum -c -
+    - tar -xzf "$GRYPE_ARCHIVE" grype
+    - install -m 0755 grype /usr/local/bin/grype
+    - grype version
   script:
     - mkdir -p grype-scan-results
     - |
