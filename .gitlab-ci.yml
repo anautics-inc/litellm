@@ -405,7 +405,6 @@ package-documents:
   before_script:
     - mkdir -p "$DOCKER_CONFIG"
     - aws --version
-    - dnf install -y --quiet jq
     - echo "--- available LITELLM_* variables (names only) ---"
     - printenv | grep -i 'LITELLM\|DEV_ENV\|STAGING_ENV\|PRODUCTION_ENV\|ENV_FILE' | sed 's/=.*/=<set>/' || true
     - echo "---------------------------------------------------"
@@ -509,8 +508,8 @@ package-documents:
 
     - chmod +x deploy.sh
     - |
-      DEPLOY_COMMANDS=$(jq -Rs . deploy.sh)
-      printf '{"commands":[%s]}\n' "$DEPLOY_COMMANDS" > deploy-params.json
+      SCRIPT_B64=$(base64 -w 0 deploy.sh)
+      printf '{"commands":["echo %s | base64 -d | bash -s"]}\n' "$SCRIPT_B64" > deploy-params.json
 
       COMMAND_ID=$(aws ssm send-command \
         --region "$LITELLM_AWS_REGION" \
