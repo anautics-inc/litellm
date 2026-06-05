@@ -555,7 +555,9 @@ deploy-dev:
   variables:
     AWS_ACCOUNT_ID: "$DEV_ACCOUNT_ID"
     EC2_IDS: "$DEV_INSTANCE_IDS"
-    ENV_FILE: "$LITELLM_DEV_ENV"
+  before_script:
+    - !reference [.deploy_template, before_script]
+    - export ENV_FILE="$LITELLM_DEV_ENV"
   environment:
     name: dev
   rules:
@@ -569,7 +571,9 @@ deploy-staging:
   variables:
     AWS_ACCOUNT_ID: "$STAGING_ACCOUNT_ID"
     EC2_IDS: "$STAGING_INSTANCE_IDS"
-    ENV_FILE: "$LITELLM_STAGING_ENV"
+  before_script:
+    - !reference [.deploy_template, before_script]
+    - export ENV_FILE="$LITELLM_STAGING_ENV"
   environment:
     name: staging
   rules:
@@ -584,7 +588,9 @@ deploy-production:
   variables:
     AWS_ACCOUNT_ID: "$PRODUCTION_ACCOUNT_ID"
     EC2_IDS: "$PRODUCTION_INSTANCE_IDS"
-    ENV_FILE: "$LITELLM_PRODUCTION_ENV"
+  before_script:
+    - !reference [.deploy_template, before_script]
+    - export ENV_FILE="$LITELLM_PRODUCTION_ENV"
   environment:
     name: production
   rules:
