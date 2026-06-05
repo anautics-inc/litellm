@@ -554,6 +554,8 @@ deploy-dev:
     AWS_ACCOUNT_ID: "$DEV_ACCOUNT_ID"
     EC2_IDS: "$DEV_INSTANCE_IDS"
     ENV_FILE: "$LITELLM_DEV_ENV"
+  environment:
+    name: dev
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
       when: never
@@ -566,6 +568,8 @@ deploy-staging:
     AWS_ACCOUNT_ID: "$STAGING_ACCOUNT_ID"
     EC2_IDS: "$STAGING_INSTANCE_IDS"
     ENV_FILE: "$LITELLM_STAGING_ENV"
+  environment:
+    name: staging
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
       when: never
@@ -579,6 +583,8 @@ deploy-production:
     AWS_ACCOUNT_ID: "$PRODUCTION_ACCOUNT_ID"
     EC2_IDS: "$PRODUCTION_INSTANCE_IDS"
     ENV_FILE: "$LITELLM_PRODUCTION_ENV"
+  environment:
+    name: production
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
       when: never
