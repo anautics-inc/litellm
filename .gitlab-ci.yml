@@ -489,12 +489,22 @@ package-documents:
       if [ -n "\$DB_PASSWORD_B64" ]; then
         DB_PASSWORD=\$(printf '%s' "\$DB_PASSWORD_B64" | base64 -d)
         printf 'DATABASE_PASSWORD=%s\n' "\$DB_PASSWORD" >> /litellm.env
-        echo "Injected DATABASE_PASSWORD into runtime env file (masked in CI logs)"
+        if grep -q '^DATABASE_PASSWORD=' /litellm.env; then
+          echo "Injected DATABASE_PASSWORD into runtime env file (masked in CI logs)"
+        else
+          echo "FATAL: DATABASE_PASSWORD injection into /litellm.env failed"
+          exit 1
+        fi
       fi
       if [ -n "\$DB_PASSWORD_READ_REPLICA_B64" ]; then
         DB_PASSWORD_READ_REPLICA=\$(printf '%s' "\$DB_PASSWORD_READ_REPLICA_B64" | base64 -d)
         printf 'DATABASE_PASSWORD_READ_REPLICA=%s\n' "\$DB_PASSWORD_READ_REPLICA" >> /litellm.env
-        echo "Injected DATABASE_PASSWORD_READ_REPLICA into runtime env file (masked in CI logs)"
+        if grep -q '^DATABASE_PASSWORD_READ_REPLICA=' /litellm.env; then
+          echo "Injected DATABASE_PASSWORD_READ_REPLICA into runtime env file (masked in CI logs)"
+        else
+          echo "FATAL: DATABASE_PASSWORD_READ_REPLICA injection into /litellm.env failed"
+          exit 1
+        fi
       fi
       chmod 600 /litellm.env
 
@@ -507,6 +517,23 @@ package-documents:
         --publish ${LITELLM_BIND_ADDRESS}:${LITELLM_HOST_PORT}:${LITELLM_CONTAINER_PORT} \
         --detach "\$IMAGE" \
         --port "${LITELLM_CONTAINER_PORT}"
+
+      if [ -n "\$DB_PASSWORD_B64" ]; then
+        if docker inspect litellm --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -q '^DATABASE_PASSWORD='; then
+          echo "Verified DATABASE_PASSWORD present in running container env (value masked)"
+        else
+          echo "FATAL: DATABASE_PASSWORD missing from running container env"
+          exit 1
+        fi
+      fi
+      if [ -n "\$DB_PASSWORD_READ_REPLICA_B64" ]; then
+        if docker inspect litellm --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -q '^DATABASE_PASSWORD_READ_REPLICA='; then
+          echo "Verified DATABASE_PASSWORD_READ_REPLICA present in running container env (value masked)"
+        else
+          echo "FATAL: DATABASE_PASSWORD_READ_REPLICA missing from running container env"
+          exit 1
+        fi
+      fi
 
       echo "Waiting for LiteLLM liveliness endpoint..."
       for i in {1..30}; do
