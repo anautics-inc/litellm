@@ -518,7 +518,7 @@ package-documents:
       echo "$ENV_FILE_B64" | base64 -d > /litellm.env
       if [ "$DEBUG_DEPLOY_PASSWORD_FLOW" = "true" ]; then
         echo "DEBUG: /litellm.env keys before injection (values redacted)"
-        awk -F= 'NF{print $1 "=<redacted>"}' /litellm.env
+          awk -F= 'NF{print \$1 "=<redacted>"}' /litellm.env
       fi
       # Inject masked DB passwords from CI variables into the runtime env file.
       sed -i '/^DATABASE_PASSWORD=/d' /litellm.env
@@ -527,7 +527,7 @@ package-documents:
         DB_PASSWORD=\$(printf '%s' "\$DB_PASSWORD_B64" | base64 -d)
         printf 'DATABASE_PASSWORD=%s\n' "\$DB_PASSWORD" >> /litellm.env
         if [ "\$DEBUG_DEPLOY_PASSWORD_FLOW" = "true" ]; then
-            DB_PASSWORD_ACTUAL_SHA256=\$(printf '%s' "\$DB_PASSWORD" | sha256sum | awk '{print $1}' | tr -d '\r\n[:space:]')
+              DB_PASSWORD_ACTUAL_SHA256=\$(printf '%s' "\$DB_PASSWORD" | sha256sum | cut -d ' ' -f1 | tr -d '\r\n[:space:]')
             DB_PASSWORD_EXPECTED_SHA256=\$(printf '%s' "\$DB_PASSWORD_SHA256" | tr -d '\r\n[:space:]')
             echo "DEBUG: remote DATABASE_PASSWORD sha256=\$DB_PASSWORD_ACTUAL_SHA256"
             echo "DEBUG: expected DATABASE_PASSWORD sha256=\$DB_PASSWORD_EXPECTED_SHA256"
@@ -544,7 +544,7 @@ package-documents:
         DB_PASSWORD_READ_REPLICA=\$(printf '%s' "\$DB_PASSWORD_READ_REPLICA_B64" | base64 -d)
         printf 'DATABASE_PASSWORD_READ_REPLICA=%s\n' "\$DB_PASSWORD_READ_REPLICA" >> /litellm.env
         if [ "\$DEBUG_DEPLOY_PASSWORD_FLOW" = "true" ]; then
-            DB_PASSWORD_READ_REPLICA_ACTUAL_SHA256=\$(printf '%s' "\$DB_PASSWORD_READ_REPLICA" | sha256sum | awk '{print $1}' | tr -d '\r\n[:space:]')
+              DB_PASSWORD_READ_REPLICA_ACTUAL_SHA256=\$(printf '%s' "\$DB_PASSWORD_READ_REPLICA" | sha256sum | cut -d ' ' -f1 | tr -d '\r\n[:space:]')
             DB_PASSWORD_READ_REPLICA_EXPECTED_SHA256=\$(printf '%s' "\$DB_PASSWORD_READ_REPLICA_SHA256" | tr -d '\r\n[:space:]')
             echo "DEBUG: remote DATABASE_PASSWORD_READ_REPLICA sha256=\$DB_PASSWORD_READ_REPLICA_ACTUAL_SHA256"
             echo "DEBUG: expected DATABASE_PASSWORD_READ_REPLICA sha256=\$DB_PASSWORD_READ_REPLICA_EXPECTED_SHA256"
@@ -559,7 +559,7 @@ package-documents:
       fi
       if [ "$DEBUG_DEPLOY_PASSWORD_FLOW" = "true" ]; then
         echo "DEBUG: /litellm.env keys after injection (values redacted)"
-        awk -F= 'NF{print $1 "=<redacted>"}' /litellm.env
+          awk -F= 'NF{print \$1 "=<redacted>"}' /litellm.env
         echo "DEBUG: DATABASE_PASSWORD entries in /litellm.env: \$(grep -c '^DATABASE_PASSWORD=' /litellm.env || true)"
         echo "DEBUG: DATABASE_PASSWORD_READ_REPLICA entries in /litellm.env: \$(grep -c '^DATABASE_PASSWORD_READ_REPLICA=' /litellm.env || true)"
       fi
