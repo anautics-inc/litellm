@@ -527,10 +527,11 @@ package-documents:
         DB_PASSWORD=\$(printf '%s' "\$DB_PASSWORD_B64" | base64 -d)
         printf 'DATABASE_PASSWORD=%s\n' "\$DB_PASSWORD" >> /litellm.env
         if [ "\$DEBUG_DEPLOY_PASSWORD_FLOW" = "true" ]; then
-          DB_PASSWORD_ACTUAL_SHA256=\$(printf '%s' "\$DB_PASSWORD" | sha256sum | awk '{print $1}')
-          echo "DEBUG: remote DATABASE_PASSWORD sha256=\$DB_PASSWORD_ACTUAL_SHA256"
-          echo "DEBUG: expected DATABASE_PASSWORD sha256=\$DB_PASSWORD_SHA256"
-          [ "\$DB_PASSWORD_ACTUAL_SHA256" = "\$DB_PASSWORD_SHA256" ] || (echo "FATAL: DATABASE_PASSWORD hash mismatch between CI and remote host" && exit 1)
+            DB_PASSWORD_ACTUAL_SHA256=\$(printf '%s' "\$DB_PASSWORD" | sha256sum | awk '{print $1}' | tr -d '\r\n[:space:]')
+            DB_PASSWORD_EXPECTED_SHA256=\$(printf '%s' "\$DB_PASSWORD_SHA256" | tr -d '\r\n[:space:]')
+            echo "DEBUG: remote DATABASE_PASSWORD sha256=\$DB_PASSWORD_ACTUAL_SHA256"
+            echo "DEBUG: expected DATABASE_PASSWORD sha256=\$DB_PASSWORD_EXPECTED_SHA256"
+            [ "\$DB_PASSWORD_ACTUAL_SHA256" = "\$DB_PASSWORD_EXPECTED_SHA256" ] || { echo "FATAL: DATABASE_PASSWORD hash mismatch between CI and remote host"; exit 1; }
         fi
         if grep -q '^DATABASE_PASSWORD=' /litellm.env; then
           echo "Injected DATABASE_PASSWORD into runtime env file (masked in CI logs)"
@@ -543,10 +544,11 @@ package-documents:
         DB_PASSWORD_READ_REPLICA=\$(printf '%s' "\$DB_PASSWORD_READ_REPLICA_B64" | base64 -d)
         printf 'DATABASE_PASSWORD_READ_REPLICA=%s\n' "\$DB_PASSWORD_READ_REPLICA" >> /litellm.env
         if [ "\$DEBUG_DEPLOY_PASSWORD_FLOW" = "true" ]; then
-          DB_PASSWORD_READ_REPLICA_ACTUAL_SHA256=\$(printf '%s' "\$DB_PASSWORD_READ_REPLICA" | sha256sum | awk '{print $1}')
-          echo "DEBUG: remote DATABASE_PASSWORD_READ_REPLICA sha256=\$DB_PASSWORD_READ_REPLICA_ACTUAL_SHA256"
-          echo "DEBUG: expected DATABASE_PASSWORD_READ_REPLICA sha256=\$DB_PASSWORD_READ_REPLICA_SHA256"
-          [ "\$DB_PASSWORD_READ_REPLICA_ACTUAL_SHA256" = "\$DB_PASSWORD_READ_REPLICA_SHA256" ] || (echo "FATAL: DATABASE_PASSWORD_READ_REPLICA hash mismatch between CI and remote host" && exit 1)
+            DB_PASSWORD_READ_REPLICA_ACTUAL_SHA256=\$(printf '%s' "\$DB_PASSWORD_READ_REPLICA" | sha256sum | awk '{print $1}' | tr -d '\r\n[:space:]')
+            DB_PASSWORD_READ_REPLICA_EXPECTED_SHA256=\$(printf '%s' "\$DB_PASSWORD_READ_REPLICA_SHA256" | tr -d '\r\n[:space:]')
+            echo "DEBUG: remote DATABASE_PASSWORD_READ_REPLICA sha256=\$DB_PASSWORD_READ_REPLICA_ACTUAL_SHA256"
+            echo "DEBUG: expected DATABASE_PASSWORD_READ_REPLICA sha256=\$DB_PASSWORD_READ_REPLICA_EXPECTED_SHA256"
+            [ "\$DB_PASSWORD_READ_REPLICA_ACTUAL_SHA256" = "\$DB_PASSWORD_READ_REPLICA_EXPECTED_SHA256" ] || { echo "FATAL: DATABASE_PASSWORD_READ_REPLICA hash mismatch between CI and remote host"; exit 1; }
         fi
         if grep -q '^DATABASE_PASSWORD_READ_REPLICA=' /litellm.env; then
           echo "Injected DATABASE_PASSWORD_READ_REPLICA into runtime env file (masked in CI logs)"
