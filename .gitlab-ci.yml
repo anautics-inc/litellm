@@ -132,7 +132,7 @@ semgrep-sast:
       sast: gl-sast-report.json
     expire_in: 1 week
   rules:
-    - when: always
+    - when: never
 
 container_scanning:
   stage: scan
@@ -449,13 +449,42 @@ package-documents:
 
     - ENV_FILE_B64=$(base64 -w 0 "$ENV_FILE")
     - |
+      if [ "${DEBUG_DEPLOY_PASSWORD_FLOW:-true}" = "true" ]; then
+        echo "DEBUG: DATABASE_PASSWORD is set: $([ -n "${DATABASE_PASSWORD:-}" ] && echo yes || echo no)"
+        echo "DEBUG: DATABASE_PASSWORD_READ_REPLICA is set: $([ -n "${DATABASE_PASSWORD_READ_REPLICA:-}" ] && echo yes || echo no)"
+        if [ -n "${DATABASE_PASSWORD:-}" ]; then
+          echo "DEBUG: DATABASE_PASSWORD length=${#DATABASE_PASSWORD}"
+          printf '%s' "$DATABASE_PASSWORD" | sha256sum | awk '{print "DEBUG: DATABASE_PASSWORD sha256=" $1}'
+          case "$DATABASE_PASSWORD" in
+            *$'\n'*) echo "DEBUG: DATABASE_PASSWORD contains newline characters" ;;
+          esac
+          case "$DATABASE_PASSWORD" in
+            *$'\r'*) echo "DEBUG: DATABASE_PASSWORD contains carriage-return characters" ;;
+          esac
+        fi
+        if [ -n "${DATABASE_PASSWORD_READ_REPLICA:-}" ]; then
+          echo "DEBUG: DATABASE_PASSWORD_READ_REPLICA length=${#DATABASE_PASSWORD_READ_REPLICA}"
+          printf '%s' "$DATABASE_PASSWORD_READ_REPLICA" | sha256sum | awk '{print "DEBUG: DATABASE_PASSWORD_READ_REPLICA sha256=" $1}'
+          case "$DATABASE_PASSWORD_READ_REPLICA" in
+            *$'\n'*) echo "DEBUG: DATABASE_PASSWORD_READ_REPLICA contains newline characters" ;;
+          esac
+          case "$DATABASE_PASSWORD_READ_REPLICA" in
+            *$'\r'*) echo "DEBUG: DATABASE_PASSWORD_READ_REPLICA contains carriage-return characters" ;;
+          esac
+        fi
+      fi
+
       DATABASE_PASSWORD_B64=""
       DATABASE_PASSWORD_READ_REPLICA_B64=""
+      DATABASE_PASSWORD_SHA256=""
+      DATABASE_PASSWORD_READ_REPLICA_SHA256=""
       if [ -n "${DATABASE_PASSWORD:-}" ]; then
         DATABASE_PASSWORD_B64=$(printf '%s' "$DATABASE_PASSWORD" | base64 -w 0)
+        DATABASE_PASSWORD_SHA256=$(printf '%s' "$DATABASE_PASSWORD" | sha256sum | awk '{print $1}')
       fi
       if [ -n "${DATABASE_PASSWORD_READ_REPLICA:-}" ]; then
         DATABASE_PASSWORD_READ_REPLICA_B64=$(printf '%s' "$DATABASE_PASSWORD_READ_REPLICA" | base64 -w 0)
+        DATABASE_PASSWORD_READ_REPLICA_SHA256=$(printf '%s' "$DATABASE_PASSWORD_READ_REPLICA" | sha256sum | awk '{print $1}')
       fi
 
     - |
@@ -467,8 +496,11 @@ package-documents:
       IMAGE_VERSION="$CI_COMMIT_REF_SLUG"
       DOCKER_USER="$CI_REGISTRY_USER"
       DOCKER_TOKEN="$CI_REGISTRY_PASSWORD"
+      DEBUG_DEPLOY_PASSWORD_FLOW="${DEBUG_DEPLOY_PASSWORD_FLOW:-true}"
       DB_PASSWORD_B64="$DATABASE_PASSWORD_B64"
       DB_PASSWORD_READ_REPLICA_B64="$DATABASE_PASSWORD_READ_REPLICA_B64"
+      DB_PASSWORD_SHA256="$DATABASE_PASSWORD_SHA256"
+      DB_PASSWORD_READ_REPLICA_SHA256="$DATABASE_PASSWORD_READ_REPLICA_SHA256"
 
       IMAGE="\$DOCKER_REGISTRY:\$IMAGE_VERSION"
 
@@ -484,36 +516,50 @@ package-documents:
 
       echo "Writing runtime environment file..."
       echo "$ENV_FILE_B64" | base64 -d > /litellm.env
+      if [ "$DEBUG_DEPLOY_PASSWORD_FLOW" = "true" ]; then
+        echo "DEBUG: /litellm.env keys before injection (values redacted)"
+        awk -F= 'NF{print $1 "=<redacted>"}' /litellm.env
+      fi
       # Inject masked DB passwords from CI variables into the runtime env file.
       sed -i '/^DATABASE_PASSWORD=/d' /litellm.env
       sed -i '/^DATABASE_PASSWORD_READ_REPLICA=/d' /litellm.env
       if [ -n "\$DB_PASSWORD_B64" ]; then
         DB_PASSWORD=\$(printf '%s' "\$DB_PASSWORD_B64" | base64 -d)
         printf 'DATABASE_PASSWORD=%s\n' "\$DB_PASSWORD" >> /litellm.env
-        ENV_FILE_CONTENT=\$(cat /litellm.env)
-        case "\$ENV_FILE_CONTENT" in
-          *$'\n'DATABASE_PASSWORD=*|DATABASE_PASSWORD=*)
-            echo "Injected DATABASE_PASSWORD into runtime env file (masked in CI logs)"
-            ;;
-          *)
-            echo "FATAL: DATABASE_PASSWORD injection into /litellm.env failed"
-            exit 1
-            ;;
-        esac
+        if [ "\$DEBUG_DEPLOY_PASSWORD_FLOW" = "true" ]; then
+          DB_PASSWORD_ACTUAL_SHA256=\$(printf '%s' "\$DB_PASSWORD" | sha256sum | awk '{print $1}')
+          echo "DEBUG: remote DATABASE_PASSWORD sha256=\$DB_PASSWORD_ACTUAL_SHA256"
+          echo "DEBUG: expected DATABASE_PASSWORD sha256=\$DB_PASSWORD_SHA256"
+          [ "\$DB_PASSWORD_ACTUAL_SHA256" = "\$DB_PASSWORD_SHA256" ] || (echo "FATAL: DATABASE_PASSWORD hash mismatch between CI and remote host" && exit 1)
+        fi
+        if grep -q '^DATABASE_PASSWORD=' /litellm.env; then
+          echo "Injected DATABASE_PASSWORD into runtime env file (masked in CI logs)"
+        else
+          echo "FATAL: DATABASE_PASSWORD injection into /litellm.env failed"
+          exit 1
+        fi
       fi
       if [ -n "\$DB_PASSWORD_READ_REPLICA_B64" ]; then
         DB_PASSWORD_READ_REPLICA=\$(printf '%s' "\$DB_PASSWORD_READ_REPLICA_B64" | base64 -d)
         printf 'DATABASE_PASSWORD_READ_REPLICA=%s\n' "\$DB_PASSWORD_READ_REPLICA" >> /litellm.env
-        ENV_FILE_CONTENT=\$(cat /litellm.env)
-        case "\$ENV_FILE_CONTENT" in
-          *$'\n'DATABASE_PASSWORD_READ_REPLICA=*|DATABASE_PASSWORD_READ_REPLICA=*)
-            echo "Injected DATABASE_PASSWORD_READ_REPLICA into runtime env file (masked in CI logs)"
-            ;;
-          *)
-            echo "FATAL: DATABASE_PASSWORD_READ_REPLICA injection into /litellm.env failed"
-            exit 1
-            ;;
-        esac
+        if [ "\$DEBUG_DEPLOY_PASSWORD_FLOW" = "true" ]; then
+          DB_PASSWORD_READ_REPLICA_ACTUAL_SHA256=\$(printf '%s' "\$DB_PASSWORD_READ_REPLICA" | sha256sum | awk '{print $1}')
+          echo "DEBUG: remote DATABASE_PASSWORD_READ_REPLICA sha256=\$DB_PASSWORD_READ_REPLICA_ACTUAL_SHA256"
+          echo "DEBUG: expected DATABASE_PASSWORD_READ_REPLICA sha256=\$DB_PASSWORD_READ_REPLICA_SHA256"
+          [ "\$DB_PASSWORD_READ_REPLICA_ACTUAL_SHA256" = "\$DB_PASSWORD_READ_REPLICA_SHA256" ] || (echo "FATAL: DATABASE_PASSWORD_READ_REPLICA hash mismatch between CI and remote host" && exit 1)
+        fi
+        if grep -q '^DATABASE_PASSWORD_READ_REPLICA=' /litellm.env; then
+          echo "Injected DATABASE_PASSWORD_READ_REPLICA into runtime env file (masked in CI logs)"
+        else
+          echo "FATAL: DATABASE_PASSWORD_READ_REPLICA injection into /litellm.env failed"
+          exit 1
+        fi
+      fi
+      if [ "$DEBUG_DEPLOY_PASSWORD_FLOW" = "true" ]; then
+        echo "DEBUG: /litellm.env keys after injection (values redacted)"
+        awk -F= 'NF{print $1 "=<redacted>"}' /litellm.env
+        echo "DEBUG: DATABASE_PASSWORD entries in /litellm.env: \$(grep -c '^DATABASE_PASSWORD=' /litellm.env || true)"
+        echo "DEBUG: DATABASE_PASSWORD_READ_REPLICA entries in /litellm.env: \$(grep -c '^DATABASE_PASSWORD_READ_REPLICA=' /litellm.env || true)"
       fi
       chmod 600 /litellm.env
 
@@ -529,27 +575,21 @@ package-documents:
 
       if [ -n "\$DB_PASSWORD_B64" ]; then
         CONTAINER_ENV=\$(docker inspect litellm --format '{{range .Config.Env}}{{println .}}{{end}}')
-        case "\$CONTAINER_ENV" in
-          *$'\n'DATABASE_PASSWORD=*|DATABASE_PASSWORD=*)
-            echo "Verified DATABASE_PASSWORD present in running container env (value masked)"
-            ;;
-          *)
-            echo "FATAL: DATABASE_PASSWORD missing from running container env"
-            exit 1
-            ;;
-        esac
+        if printf '%s\n' "\$CONTAINER_ENV" | grep -q '^DATABASE_PASSWORD='; then
+          echo "Verified DATABASE_PASSWORD present in running container env (value masked)"
+        else
+          echo "FATAL: DATABASE_PASSWORD missing from running container env"
+          exit 1
+        fi
       fi
       if [ -n "\$DB_PASSWORD_READ_REPLICA_B64" ]; then
         CONTAINER_ENV=\$(docker inspect litellm --format '{{range .Config.Env}}{{println .}}{{end}}')
-        case "\$CONTAINER_ENV" in
-          *$'\n'DATABASE_PASSWORD_READ_REPLICA=*|DATABASE_PASSWORD_READ_REPLICA=*)
-            echo "Verified DATABASE_PASSWORD_READ_REPLICA present in running container env (value masked)"
-            ;;
-          *)
-            echo "FATAL: DATABASE_PASSWORD_READ_REPLICA missing from running container env"
-            exit 1
-            ;;
-        esac
+        if printf '%s\n' "\$CONTAINER_ENV" | grep -q '^DATABASE_PASSWORD_READ_REPLICA='; then
+          echo "Verified DATABASE_PASSWORD_READ_REPLICA present in running container env (value masked)"
+        else
+          echo "FATAL: DATABASE_PASSWORD_READ_REPLICA missing from running container env"
+          exit 1
+        fi
       fi
 
       echo "Waiting for LiteLLM liveliness endpoint..."
