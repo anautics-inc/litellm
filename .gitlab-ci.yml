@@ -499,7 +499,7 @@ package-documents:
       echo "Running LiteLLM container on ${LITELLM_BIND_ADDRESS}:${LITELLM_HOST_PORT} -> ${LITELLM_CONTAINER_PORT}..."
       docker run \
         --name litellm \
-        --network=captify-net
+        --network=captify-net \
         --restart always \
         --env-file /litellm.env \
         --publish ${LITELLM_BIND_ADDRESS}:${LITELLM_HOST_PORT}:${LITELLM_CONTAINER_PORT} \
