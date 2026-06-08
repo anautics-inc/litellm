@@ -447,6 +447,15 @@ package-documents:
       done
 
     - ENV_FILE_B64=$(base64 -w 0 "$ENV_FILE")
+    - |
+      DATABASE_PASSWORD_B64=""
+      DATABASE_PASSWORD_READ_REPLICA_B64=""
+      if [ -n "${DATABASE_PASSWORD:-}" ]; then
+        DATABASE_PASSWORD_B64=$(printf '%s' "$DATABASE_PASSWORD" | base64 -w 0)
+      fi
+      if [ -n "${DATABASE_PASSWORD_READ_REPLICA:-}" ]; then
+        DATABASE_PASSWORD_READ_REPLICA_B64=$(printf '%s' "$DATABASE_PASSWORD_READ_REPLICA" | base64 -w 0)
+      fi
 
     - |
       cat > deploy.sh <<EOF
@@ -457,6 +466,8 @@ package-documents:
       IMAGE_VERSION="$CI_COMMIT_REF_SLUG"
       DOCKER_USER="$CI_REGISTRY_USER"
       DOCKER_TOKEN="$CI_REGISTRY_PASSWORD"
+      DB_PASSWORD_B64="$DATABASE_PASSWORD_B64"
+      DB_PASSWORD_READ_REPLICA_B64="$DATABASE_PASSWORD_READ_REPLICA_B64"
 
       IMAGE="\$DOCKER_REGISTRY:\$IMAGE_VERSION"
 
@@ -472,6 +483,17 @@ package-documents:
 
       echo "Writing runtime environment file..."
       echo "$ENV_FILE_B64" | base64 -d > /litellm.env
+      # Inject masked DB passwords from CI variables into the runtime env file.
+      sed -i '/^DATABASE_PASSWORD=/d' /litellm.env
+      sed -i '/^DATABASE_PASSWORD_READ_REPLICA=/d' /litellm.env
+      if [ -n "\$DB_PASSWORD_B64" ]; then
+        DB_PASSWORD=$(printf '%s' "\$DB_PASSWORD_B64" | base64 -d)
+        printf 'DATABASE_PASSWORD=%s\n' "\$DB_PASSWORD" >> /litellm.env
+      fi
+      if [ -n "\$DB_PASSWORD_READ_REPLICA_B64" ]; then
+        DB_PASSWORD_READ_REPLICA=$(printf '%s' "\$DB_PASSWORD_READ_REPLICA_B64" | base64 -d)
+        printf 'DATABASE_PASSWORD_READ_REPLICA=%s\n' "\$DB_PASSWORD_READ_REPLICA" >> /litellm.env
+      fi
       chmod 600 /litellm.env
 
       echo "Running LiteLLM container on ${LITELLM_BIND_ADDRESS}:${LITELLM_HOST_PORT} -> ${LITELLM_CONTAINER_PORT}..."
@@ -481,7 +503,8 @@ package-documents:
         --env-file /litellm.env \
         --publish ${LITELLM_BIND_ADDRESS}:${LITELLM_HOST_PORT}:${LITELLM_CONTAINER_PORT} \
         --detach "\$IMAGE" \
-        --port "${LITELLM_CONTAINER_PORT}"
+        --port "${LITELLM_CONTAINER_PORT}" \
+        --network captify-net
 
       echo "Waiting for LiteLLM liveliness endpoint..."
       for i in {1..30}; do
@@ -508,8 +531,13 @@ package-documents:
 
     - chmod +x deploy.sh
     - |
-      SCRIPT_B64=$(base64 -w 0 deploy.sh)
-      printf '{"commands":["echo %s | base64 -d | bash -s"]}\n' "$SCRIPT_B64" > deploy-params.json
+      DEPLOY_COMMANDS=$(python3 - <<'PY'
+      import json
+      with open("deploy.sh", "r", encoding="utf-8") as f:
+          print(json.dumps(f.read()))
+      PY
+      )
+      printf '{"commands":[%s]}\n' "$DEPLOY_COMMANDS" > deploy-params.json
 
       COMMAND_ID=$(aws ssm send-command \
         --region "$LITELLM_AWS_REGION" \
