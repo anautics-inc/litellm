@@ -504,7 +504,7 @@ package-documents:
         --publish ${LITELLM_BIND_ADDRESS}:${LITELLM_HOST_PORT}:${LITELLM_CONTAINER_PORT} \
         --detach "\$IMAGE" \
         --port "${LITELLM_CONTAINER_PORT}" \
-        --network captify-net
+        --network=captify-net
 
       echo "Waiting for LiteLLM liveliness endpoint..."
       for i in {1..30}; do
