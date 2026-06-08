@@ -508,7 +508,7 @@ package-documents:
 
       echo "Waiting for LiteLLM liveliness endpoint..."
       for i in {1..30}; do
-        if curl -fsS "http://127.0.0.1:${LITELLM_HOST_PORT}/health/liveliness" >/dev/null; then
+        if curl -fsS "http://litellm:${LITELLM_HOST_PORT}/health/liveliness" >/dev/null; then
           echo "LiteLLM is healthy."
           break
         fi
