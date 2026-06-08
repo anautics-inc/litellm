@@ -508,7 +508,8 @@ package-documents:
 
       echo "Waiting for LiteLLM liveliness endpoint..."
       for i in {1..30}; do
-        if curl -fsS "http://172.19.0.1:${LITELLM_HOST_PORT}/health/liveliness" >/dev/null; then
+        if docker run --rm --network captify-net curlimages/curl:8.9.1 \
+          -fsS "http://litellm:${LITELLM_CONTAINER_PORT}/health/liveliness" >/dev/null; then
           echo "LiteLLM is healthy."
           break
         fi
