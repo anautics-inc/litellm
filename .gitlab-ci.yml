@@ -487,11 +487,11 @@ package-documents:
       sed -i '/^DATABASE_PASSWORD=/d' /litellm.env
       sed -i '/^DATABASE_PASSWORD_READ_REPLICA=/d' /litellm.env
       if [ -n "\$DB_PASSWORD_B64" ]; then
-        DB_PASSWORD=$(printf '%s' "\$DB_PASSWORD_B64" | base64 -d)
+        DB_PASSWORD=\$(printf '%s' "\$DB_PASSWORD_B64" | base64 -d)
         printf 'DATABASE_PASSWORD=%s\n' "\$DB_PASSWORD" >> /litellm.env
       fi
       if [ -n "\$DB_PASSWORD_READ_REPLICA_B64" ]; then
-        DB_PASSWORD_READ_REPLICA=$(printf '%s' "\$DB_PASSWORD_READ_REPLICA_B64" | base64 -d)
+        DB_PASSWORD_READ_REPLICA=\$(printf '%s' "\$DB_PASSWORD_READ_REPLICA_B64" | base64 -d)
         printf 'DATABASE_PASSWORD_READ_REPLICA=%s\n' "\$DB_PASSWORD_READ_REPLICA" >> /litellm.env
       fi
       chmod 600 /litellm.env
@@ -531,13 +531,8 @@ package-documents:
 
     - chmod +x deploy.sh
     - |
-      DEPLOY_COMMANDS=$(python3 - <<'PY'
-      import json
-      with open("deploy.sh", "r", encoding="utf-8") as f:
-          print(json.dumps(f.read()))
-      PY
-      )
-      printf '{"commands":[%s]}\n' "$DEPLOY_COMMANDS" > deploy-params.json
+      DEPLOY_COMMANDS=$(awk '{gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); printf "%s\\n", $0}' deploy.sh | sed ':a;N;$!ba;s/\n/\\n/g')
+      printf '{"commands":["%s"]}\n' "$DEPLOY_COMMANDS" > deploy-params.json
 
       COMMAND_ID=$(aws ssm send-command \
         --region "$LITELLM_AWS_REGION" \
