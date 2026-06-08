@@ -533,7 +533,7 @@ package-documents:
             echo "DEBUG: expected DATABASE_PASSWORD sha256=\$DB_PASSWORD_EXPECTED_SHA256"
             [ "\$DB_PASSWORD_ACTUAL_SHA256" = "\$DB_PASSWORD_EXPECTED_SHA256" ] || { echo "FATAL: DATABASE_PASSWORD hash mismatch between CI and remote host"; exit 1; }
         fi
-        if grep -q '^DATABASE_PASSWORD=' /litellm.env; then
+        if awk -F= '{ key=\$1; sub(/\r$/, "", key); if (key=="DATABASE_PASSWORD") found=1 } END{ exit(found?0:1) }' /litellm.env; then
           echo "Injected DATABASE_PASSWORD into runtime env file (masked in CI logs)"
         else
           echo "FATAL: DATABASE_PASSWORD injection into /litellm.env failed"
@@ -550,7 +550,7 @@ package-documents:
             echo "DEBUG: expected DATABASE_PASSWORD_READ_REPLICA sha256=\$DB_PASSWORD_READ_REPLICA_EXPECTED_SHA256"
             [ "\$DB_PASSWORD_READ_REPLICA_ACTUAL_SHA256" = "\$DB_PASSWORD_READ_REPLICA_EXPECTED_SHA256" ] || { echo "FATAL: DATABASE_PASSWORD_READ_REPLICA hash mismatch between CI and remote host"; exit 1; }
         fi
-        if grep -q '^DATABASE_PASSWORD_READ_REPLICA=' /litellm.env; then
+        if awk -F= '{ key=\$1; sub(/\r$/, "", key); if (key=="DATABASE_PASSWORD_READ_REPLICA") found=1 } END{ exit(found?0:1) }' /litellm.env; then
           echo "Injected DATABASE_PASSWORD_READ_REPLICA into runtime env file (masked in CI logs)"
         else
           echo "FATAL: DATABASE_PASSWORD_READ_REPLICA injection into /litellm.env failed"
@@ -560,8 +560,8 @@ package-documents:
       if [ "$DEBUG_DEPLOY_PASSWORD_FLOW" = "true" ]; then
         echo "DEBUG: /litellm.env keys after injection (values redacted)"
           awk -F= 'NF{print \$1 "=<redacted>"}' /litellm.env
-        echo "DEBUG: DATABASE_PASSWORD entries in /litellm.env: \$(grep -c '^DATABASE_PASSWORD=' /litellm.env || true)"
-        echo "DEBUG: DATABASE_PASSWORD_READ_REPLICA entries in /litellm.env: \$(grep -c '^DATABASE_PASSWORD_READ_REPLICA=' /litellm.env || true)"
+        echo "DEBUG: DATABASE_PASSWORD entries in /litellm.env: \$(awk -F= '{ key=\$1; sub(/\r$/, "", key); if (key=="DATABASE_PASSWORD") c++ } END{print c+0}' /litellm.env)"
+        echo "DEBUG: DATABASE_PASSWORD_READ_REPLICA entries in /litellm.env: \$(awk -F= '{ key=\$1; sub(/\r$/, "", key); if (key=="DATABASE_PASSWORD_READ_REPLICA") c++ } END{print c+0}' /litellm.env)"
       fi
       chmod 600 /litellm.env
 
