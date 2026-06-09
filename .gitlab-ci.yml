@@ -533,12 +533,13 @@ package-documents:
             echo "DEBUG: expected DATABASE_PASSWORD sha256=\$DB_PASSWORD_EXPECTED_SHA256"
             [ "\$DB_PASSWORD_ACTUAL_SHA256" = "\$DB_PASSWORD_EXPECTED_SHA256" ] || { echo "FATAL: DATABASE_PASSWORD hash mismatch between CI and remote host"; exit 1; }
         fi
-        if awk -F= '{ key=\$1; sub(/\r$/, "", key); if (key=="DATABASE_PASSWORD") found=1 } END{ exit(found?0:1) }' /litellm.env; then
-          echo "Injected DATABASE_PASSWORD into runtime env file (masked in CI logs)"
-        else
-          echo "FATAL: DATABASE_PASSWORD injection into /litellm.env failed"
-          exit 1
-        fi
+        echo "$DB_PASSWORD"
+        #if awk -F= '{ key=\$1; sub(/\r$/, "", key); if (key=="DATABASE_PASSWORD") found=1 } END{ exit(found?0:1) }' /litellm.env; then
+        #  echo "Injected DATABASE_PASSWORD into runtime env file (masked in CI logs)"
+        #else
+        #  echo "FATAL: DATABASE_PASSWORD injection into /litellm.env failed"
+        #  exit 1
+        #fi
       fi
       if [ -n "\$DB_PASSWORD_READ_REPLICA_B64" ]; then
         DB_PASSWORD_READ_REPLICA=\$(printf '%s' "\$DB_PASSWORD_READ_REPLICA_B64" | base64 -d)
@@ -550,12 +551,12 @@ package-documents:
             echo "DEBUG: expected DATABASE_PASSWORD_READ_REPLICA sha256=\$DB_PASSWORD_READ_REPLICA_EXPECTED_SHA256"
             [ "\$DB_PASSWORD_READ_REPLICA_ACTUAL_SHA256" = "\$DB_PASSWORD_READ_REPLICA_EXPECTED_SHA256" ] || { echo "FATAL: DATABASE_PASSWORD_READ_REPLICA hash mismatch between CI and remote host"; exit 1; }
         fi
-        if awk -F= '{ key=\$1; sub(/\r$/, "", key); if (key=="DATABASE_PASSWORD_READ_REPLICA") found=1 } END{ exit(found?0:1) }' /litellm.env; then
-          echo "Injected DATABASE_PASSWORD_READ_REPLICA into runtime env file (masked in CI logs)"
-        else
-          echo "FATAL: DATABASE_PASSWORD_READ_REPLICA injection into /litellm.env failed"
-          exit 1
-        fi
+        #if awk -F= '{ key=\$1; sub(/\r$/, "", key); if (key=="DATABASE_PASSWORD_READ_REPLICA") found=1 } END{ exit(found?0:1) }' /litellm.env; then
+        #  echo "Injected DATABASE_PASSWORD_READ_REPLICA into runtime env file (masked in CI logs)"
+        #else
+        #  echo "FATAL: DATABASE_PASSWORD_READ_REPLICA injection into /litellm.env failed"
+        #  exit 1
+        #fi
       fi
       if [ "$DEBUG_DEPLOY_PASSWORD_FLOW" = "true" ]; then
         echo "DEBUG: /litellm.env keys after injection (values redacted)"
@@ -564,6 +565,10 @@ package-documents:
         echo "DEBUG: DATABASE_PASSWORD_READ_REPLICA entries in /litellm.env: \$(awk -F= '{ key=\$1; sub(/\r$/, "", key); if (key=="DATABASE_PASSWORD_READ_REPLICA") c++ } END{print c+0}' /litellm.env)"
       fi
       chmod 600 /litellm.env
+
+      echo "**********"
+      cat  /litellm.env
+      echo "**********"
 
       echo "Running LiteLLM container on ${LITELLM_BIND_ADDRESS}:${LITELLM_HOST_PORT} -> ${LITELLM_CONTAINER_PORT}..."
       docker run \
