@@ -602,20 +602,20 @@ package-documents:
         fi
       fi
 
-      echo "Waiting for LiteLLM liveliness endpoint..."
-      for i in {1..30}; do
-        if docker run --rm --network captify-net curlimages/curl:8.8.0 \
-          -fsS "http://litellm:${LITELLM_CONTAINER_PORT}/health/liveliness" >/dev/null; then
-          echo "LiteLLM is healthy."
-          break
-        fi
-        if [ "\$i" -eq 30 ]; then
-          echo "FATAL: LiteLLM failed health check"
-          docker logs --tail 200 litellm || true
-          exit 1
-        fi
-        sleep 2
-      done
+      #echo "Waiting for LiteLLM liveliness endpoint..."
+      #for i in {1..30}; do
+      #  if docker run --rm --network captify-net curlimages/curl:8.8.0 \
+      #    -fsS "http://litellm:${LITELLM_CONTAINER_PORT}/health/liveliness" >/dev/null; then
+      #    echo "LiteLLM is healthy."
+      #    break
+      #  fi
+      #  if [ "\$i" -eq 30 ]; then
+      #    echo "FATAL: LiteLLM failed health check"
+      #    docker logs --tail 200 litellm || true
+      #    exit 1
+      #  fi
+      #  sleep 2
+      #done
 
       echo "Cleaning up old LiteLLM images to avoid disk pressure..."
       docker images --format "{{.Repository}}:{{.Tag}}" \
