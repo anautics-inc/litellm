@@ -54,6 +54,7 @@ general_settings:
 
 # LiteLLM Settings
 litellm_settings:
+  drop_params: true
   # Enable MCP Semantic Tool Filter
   mcp_semantic_tool_filter:
     enabled: true
