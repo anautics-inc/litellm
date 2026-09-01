@@ -1,6 +1,5 @@
 import logging
 import os
-import sys
 import traceback
 import asyncio
 from typing import Optional
@@ -11,9 +10,6 @@ from unittest.mock import patch, AsyncMock
 import json
 from abc import ABC, abstractmethod
 
-sys.path.insert(
-    0, os.path.abspath("../..")
-)  # Adds the parent directory to the system path
 
 import litellm
 from litellm.utils import ImageResponse
@@ -103,12 +99,6 @@ class BaseLLMImageEditTest(ABC):
 pwd = os.path.dirname(os.path.realpath(__file__))
 
 
-# Image fixtures must be regenerated per access — module-level
-# ``open(...)`` handles get consumed after a single multipart upload, leaving
-# subsequent tests in the same process to send empty bodies. That non-determinism
-# (a) blows the recorded cassette past ``MAX_EPISODES_PER_CASSETTE`` so the
-# persister refuses to save (see ``tests/_vcr_redis_persister.py``), and
-# (b) re-bills the live image edit endpoint on every CI run.
 def _read_image_bytes(filename: str) -> bytes:
     with open(os.path.join(pwd, filename), "rb") as f:
         return f.read()
@@ -119,30 +109,18 @@ _LITELLM_SITE_BYTES = _read_image_bytes("litellm_site.png")
 
 
 def _make_test_images() -> list:
-    """Return a fresh pair of image streams seeded with the fixture bytes.
+    return [_ISHAAN_GITHUB_BYTES, _LITELLM_SITE_BYTES]
 
-    Use this everywhere you'd previously have used the module-level
-    ``TEST_IMAGES``. Each call returns brand new ``BytesIO`` objects whose
-    file pointers start at 0, so multipart uploads encode the full image
-    bytes on every test invocation. Parametrized and ``flaky``-retried
-    test methods call ``get_base_image_edit_call_args`` once per
-    invocation, so a fresh stream per call is sufficient — the factory
-    must not auto-rewind on EOF or the SDK's multipart writer will read
-    the same bytes forever (worker OOM).
-    """
+
+def _make_single_test_image() -> bytes:
+    return _ISHAAN_GITHUB_BYTES
+
+
+def get_test_images_as_bytesio():
     return [
         BytesIO(_ISHAAN_GITHUB_BYTES),
         BytesIO(_LITELLM_SITE_BYTES),
     ]
-
-
-def _make_single_test_image() -> BytesIO:
-    return BytesIO(_ISHAAN_GITHUB_BYTES)
-
-
-def get_test_images_as_bytesio():
-    """Helper function to get test images as BytesIO objects"""
-    return _make_test_images()
 
 
 class TestOpenAIImageEditGPTImage1(BaseLLMImageEditTest):
@@ -710,10 +688,9 @@ async def test_multiple_image_edit_with_different_formats():
     try:
         prompt = "Create a cohesive artistic style across all images"
 
-        # Test with mixed BytesIO and file objects
         mixed_images = [
-            _make_single_test_image(),  # File object
-            get_test_images_as_bytesio()[1],  # BytesIO object
+            _make_single_test_image(),
+            get_test_images_as_bytesio()[1],
         ]
 
         result = await aimage_edit(
